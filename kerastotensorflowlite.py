@@ -3,8 +3,9 @@ import argparse
 import numpy as np
 import tensorflow as tf
 from freeze import freeze_session
-from keras.models import model_from_json
-from keras import backend as K
+from data_parse import mean, std
+from tensorflow.python.keras.models import model_from_json
+from tensorflow.python.keras import backend as K
 K.set_learning_phase(0)
 
 parser = argparse.ArgumentParser(
@@ -25,6 +26,11 @@ parser.add_argument(
     required=True,
     help='Model Name'
 )
+parser.add_argument(
+    '-d', '--data',
+    required=True,
+    help='Data path'
+)
 args = parser.parse_args()
 
 model = model_from_json(open(args.json_keras).read(), custom_objects={'tf': tf, 'RESIZE_FACTOR': 2})
@@ -33,16 +39,22 @@ model.load_weights(args.keras)
 input_arrays = ['input_image']
 
 output_names = [out.op.name for out in model.outputs]
+print(output_names)
 
 frozen_graph = freeze_session(K.get_session(), output_names=[out.op.name for out in model.outputs])
 
 
-tf.train.write_graph(frozen_graph, args.name, 'frozen_inference_graph.pb', as_text=False)
+tf.io.write_graph(frozen_graph, args.name, 'frozen_inference_graph.pb', as_text=False)
 tf_model_path = os.path.join(args.name, 'frozen_inference_graph.pb')
 
 
 converter = tf.lite.TFLiteConverter.from_frozen_graph(tf_model_path, input_arrays, output_names,
                                                       input_shapes={'input_image': [1, 512, 512, 3]})
+converter.inference_type = tf.uint8
+
+converter.quantized_input_stats = {'input_image': (10, 127)}
+converter.default_ranges_stats = (0, 1)
+
 tflite_model = converter.convert()
 tflite_model_path = os.path.join(args.name, args.name + '.tflite')
 open(tflite_model_path, 'wb').write(tflite_model)
