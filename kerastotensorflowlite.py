@@ -5,20 +5,31 @@ import tensorflow as tf
 from freeze import freeze_session
 from tensorflow.python.keras.models import model_from_json
 from tensorflow.python.keras import backend as K
+
 K.set_learning_phase(0)
 
 parser = argparse.ArgumentParser(
     description='Converts Keras Model to Tensorflow Model'
 )
 parser.add_argument(
-    '-j', '--json_keras',
+    '-j', '--keras_json',
     required=True,
     help='Keras json model'
 )
 parser.add_argument(
-    '-k', '--keras',
+    '-k', '--keras_data',
     required=True,
     help='Keras model'
+)
+parser.add_argument(
+    '-i', '--input_size',
+    default=224,
+    help='Size of input images (square image)'
+)
+parser.add_argument(
+    '-r', '--resize_factor',
+    default=2,
+    help='The resize factor set in the EAST model'
 )
 parser.add_argument(
     '-n', '--name',
@@ -27,8 +38,8 @@ parser.add_argument(
 )
 args = parser.parse_args()
 
-model = model_from_json(open(args.json_keras).read(), custom_objects={'tf': tf, 'RESIZE_FACTOR': 2})
-model.load_weights(args.keras)
+model = model_from_json(open(args.keras_json).read(), custom_objects={'tf': tf, 'RESIZE_FACTOR': args.resize_factor})
+model.load_weights(args.keras_data)
 
 input_arrays = ['input_image']
 
@@ -38,12 +49,12 @@ print(output_names)
 
 frozen_graph = freeze_session(K.get_session(), output_names=output_names)
 
-
 tf.io.write_graph(frozen_graph, args.name, 'frozen_inference_graph.pb', as_text=False)
 tf_model_path = os.path.join(args.name, 'frozen_inference_graph.pb')
 
 converter = tf.lite.TFLiteConverter.from_frozen_graph(tf_model_path, input_arrays, new_output_names,
-                                                      input_shapes={'input_image': [1, 512, 512, 3]})
+                                                      input_shapes={
+                                                          'input_image': [1, args.input_size, args.input_size, 3]})
 converter.inference_type = tf.uint8
 converter.quantized_input_stats = {'input_image': (128, 127)}
 converter.default_ranges_stats = (0, 6)
@@ -70,7 +81,9 @@ interpreter.invoke()
 output_data1 = interpreter.get_tensor(output_details[0]['index'])
 output_data2 = interpreter.get_tensor(output_details[1]['index'])
 output_data3 = interpreter.get_tensor(output_details[2]['index'])
-print(output_data1.shape)
-print(output_data2.shape)
-print(output_data3.shape)
-print(np.mean(output_data2))
+print(f'score map output shape: {output_data1.shape}')
+print(f'geo map output shape: {output_data2.shape}')
+print(f'geo angle map output shape: {output_data3.shape}')
+print(f'score map output mean: {np.mean(output_data1)}')
+print(f'geo map output mean: {np.mean(output_data2)}')
+print(f'geo angle map output mean: {np.mean(output_data3)}')
